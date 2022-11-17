@@ -43,10 +43,12 @@ func (t *JSONTime) UnmarshalJSON(buf []byte) error {
 
 type RefreshToken struct {
 	RefreshToken string `json:"refreshToken"`
+	Message      string `json:"message,omitempty"`
 }
 
 type IDToken struct {
 	IDToken string `json:"idToken"`
+	Message string `json:"message,omitempty"`
 }
 
 type Quote struct {
