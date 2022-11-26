@@ -15,7 +15,7 @@ import (
 
 const (
 	credentialFileName       = "jquants-api.toml"
-	credentialUserDir        = ".jquants-api"
+	credentialUserDirName    = ".jquants-api"
 	credentialFilePathEnvKey = "JQUANTS_API_CLIENT_CONFIG_FILE"
 	mailAddressEnvKey        = "JQUANTS_API_MAIL_ADDRESS"
 	passwordEnvKey           = "JQUANTS_API_PASSWORD"
@@ -48,55 +48,58 @@ func (c *Credential) overwrite(o *Credential) {
 }
 
 func LoadCredential() *Credential {
-	cred := &Credential{}
+	cred := new(Credential)
 
 	if path, err := userCredentialPath(); err == nil {
-		c := readCredentialFile(path)
-		cred.overwrite(c)
+		if c, err := readCredentialFile(path); err == nil {
+			cred.overwrite(c)
+		}
 	}
 	if path, err := currentDirCredentialPath(); err == nil {
-		c := readCredentialFile(path)
-		cred.overwrite(c)
+		if c, err := readCredentialFile(path); err == nil {
+			cred.overwrite(c)
+		}
 	}
-	if path, ok := os.LookupEnv(credentialFilePathEnvKey); ok && path != "" {
-		c := readCredentialFile(path)
-		cred.overwrite(c)
+	if path, ok := os.LookupEnv(credentialFilePathEnvKey); ok {
+		if c, err := readCredentialFile(path); err == nil {
+			cred.overwrite(c)
+		}
 	}
 
-	if val, ok := os.LookupEnv(mailAddressEnvKey); ok && val != "" {
+	if val, ok := os.LookupEnv(mailAddressEnvKey); ok {
 		cred.MailAddress = val
 	}
-	if val, ok := os.LookupEnv(passwordEnvKey); ok && val != "" {
+	if val, ok := os.LookupEnv(passwordEnvKey); ok {
 		cred.Password = val
 	}
-	if val, ok := os.LookupEnv(refreshTokenEnvKey); ok && val != "" {
+	if val, ok := os.LookupEnv(refreshTokenEnvKey); ok {
 		cred.RefreshToken = val
 	}
 
 	return cred
 }
 
-func GetRefreshToken(c *Credential) (InternalToken, error) {
-	if c == nil {
-		return InternalToken{}, errors.New("credential is nil")
-	}
+type RefreshTokenResponse struct {
+	RefreshToken string `json:"refreshToken"`
+	Message      string `json:"message,omitempty"`
+}
 
+type getRefreshTokenParameters struct {
+	MailAddress string `json:"mailaddress"`
+	Password    string `json:"password"`
+}
+
+func GetRefreshToken(c *Credential) (InternalToken, error) {
 	now := time.Now()
 	endpoint, err := url.JoinPath(endpointBase, "token", "auth_user")
 	if err != nil {
 		return InternalToken{}, err
 	}
 
-	type params struct {
-		MailAddress string `json:"mailaddress"`
-		Password    string `json:"password"`
-	}
-
-	p := params{
+	p := getRefreshTokenParameters{
 		MailAddress: c.MailAddress,
 		Password:    c.Password,
 	}
-
 	b, err := json.Marshal(p)
 	if err != nil {
 		return InternalToken{}, err
@@ -108,18 +111,23 @@ func GetRefreshToken(c *Credential) (InternalToken, error) {
 	}
 	defer resp.Body.Close()
 
-	var rt RefreshToken
-	if err := json.NewDecoder(resp.Body).Decode(&rt); err != nil {
+	var token RefreshTokenResponse
+	if err := DecodeBody(resp.Body, &token); err != nil {
 		return InternalToken{}, err
 	}
-	if rt.Message != "" {
-		return InternalToken{}, errors.New(rt.Message)
+	if token.Message != "" {
+		return InternalToken{}, errors.New(token.Message)
 	}
 
 	return InternalToken{
-		Token:  rt.RefreshToken,
+		Token:  token.RefreshToken,
 		Expiry: now.Add(refreshTokenExpiry),
 	}, nil
+}
+
+type IDTokenResponse struct {
+	IDToken string `json:"idToken"`
+	Message string `json:"message,omitempty"`
 }
 
 func GetIDToken(c *Credential) (InternalToken, error) {
@@ -144,16 +152,16 @@ func GetIDToken(c *Credential) (InternalToken, error) {
 	}
 	defer resp.Body.Close()
 
-	var t IDToken
-	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+	var token IDTokenResponse
+	if err := DecodeBody(resp.Body, &token); err != nil {
 		return InternalToken{}, err
 	}
-	if t.Message != "" {
-		return InternalToken{}, errors.New(t.Message)
+	if token.Message != "" {
+		return InternalToken{}, errors.New(token.Message)
 	}
 
 	return InternalToken{
-		Token:  t.IDToken,
+		Token:  token.IDToken,
 		Expiry: now.Add(idTokenExpiry),
 	}, nil
 }
@@ -163,7 +171,7 @@ func userCredentialPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, credentialUserDir, credentialFileName), nil
+	return filepath.Join(home, credentialUserDirName, credentialFileName), nil
 }
 
 func currentDirCredentialPath() (string, error) {
@@ -178,17 +186,17 @@ type jquantsConfig struct {
 	Credential Credential `toml:"jquants-api-client"`
 }
 
-func readCredentialFile(path string) *Credential {
+func readCredentialFile(path string) (*Credential, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return &Credential{}
+		return nil, err
 	}
 	defer file.Close()
 
 	c := jquantsConfig{}
 	if err := toml.NewDecoder(file).Decode(&c); err != nil {
-		return &Credential{}
+		return nil, err
 	}
 
-	return &c.Credential
+	return &c.Credential, nil
 }

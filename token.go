@@ -33,15 +33,15 @@ type TokenSource interface {
 	Token() (*Token, error)
 }
 
-type StaticTokenSource struct {
+type staticTokenSource struct {
 	t *Token
 }
 
-func NewStaticTokenSource(t *Token) TokenSource {
-	return &StaticTokenSource{t: t}
+func StaticTokenSource(t *Token) TokenSource {
+	return &staticTokenSource{t: t}
 }
 
-func (s *StaticTokenSource) Token() (*Token, error) {
+func (s *staticTokenSource) Token() (*Token, error) {
 	if s.t == nil || s.t.IDToken.Token == "" {
 		return nil, errors.New("token is not set")
 	}
